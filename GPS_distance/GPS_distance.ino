@@ -1,6 +1,28 @@
+// Code credit to GekoCH:  http://forum.arduino.cc/index.php?topic=7490.0
+// Modified to parse GGA strings
+
+#include <SoftwareSerial.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
 #include <Wire.h> 
+
+/////////////////////////////////////////////////////////COMPUTER SERIAL SETUP///////////////////////////////////////
+#define SerialON 1
+
+/////////////////////////////////////////////////////////GPS SETUP////////////////////////////////////////////////////
+SoftwareSerial mySerial(9, 8, false); //Green in 9 (rx), Yellow in 8 (tx)
+#define BAUDRATE 38400
+#define BUFFERSIZE 90
+char buffer[BUFFERSIZE];
+char *parseptr;
+char bufferIndex;
+uint8_t minute, second, year, month, date;
+int8_t hour;
+const int TimeZone = -7;
+char ampm[3];
+uint32_t latitude, longitude, altitude, targetLatitude, targetLongitude;
+char latdir, longdir;
+boolean displayTime = false;
  
 /////////////////////////////////////////////////////KEYPAD SETUP/////////////////////////////////////////////////////// 
 #define PCA9555 0x20 // address for PCA9555
@@ -15,7 +37,7 @@
 #define printIIC(args) Wire.send(args)
 #define readIIC() Wire.receive()
 #endif
-///////////////////////////////////////////////////END KEYPAD SETUP///////////////////////////////////////////////////////
+
 
 
 /////////////////////////////////////////////////LCD SETUP//////////////////////////////////////////////////////////////
@@ -24,14 +46,14 @@ boolean displayTime = false;
 const int gpsCoordinateInputBufferSize = 10;
 char input[gpsCoordinateInputBufferSize]; //buffer for input characters
 int lcdcolumnindexrow1 = 0; // used to indicate location of input key
-////////////////////////////////////////////////END LCD SETUP///////////////////////////////////////////////////////////
+
 
 ///////////////////////////////////////////////VARIABLE SETUP//////////////////////////////////////////////////////////
 boolean SETUP = false;
 boolean SETUPLATITUDE = false;
 boolean SETUPLONGITUDE = false; 
-uint32_t latitude, longitude, altitude, targetLatitude, targetLongitude;
-///////////////////////////////////////////////END VARIABLE SETUP//////////////////////////////////////////////////////////
+
+
 
 
 float distance_between(float lat1, float long1, float lat2, float long2, float units_per_meter) {
@@ -73,7 +95,11 @@ void setup()
   lcd.print("Coordinate Setup");
 
   //SERIAL TO COMPUTER
-  Serial.begin(38400);
+  if(SerialON) Serial.begin(38400);
+  
+  //GPS SETUP
+  mySerial.begin(BAUDRATE);
+  ampm[1] = 'M';
 
 }
 
