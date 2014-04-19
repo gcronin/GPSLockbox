@@ -22,7 +22,6 @@ const int TimeZone = -7;
 char ampm[3];
 uint32_t latitude, longitude, altitude, targetLatitude, targetLongitude;
 char latdir, longdir;
-boolean displayTime = false;
  
 /////////////////////////////////////////////////////KEYPAD SETUP/////////////////////////////////////////////////////// 
 #define PCA9555 0x20 // address for PCA9555
@@ -43,7 +42,7 @@ boolean displayTime = false;
 /////////////////////////////////////////////////LCD SETUP//////////////////////////////////////////////////////////////
 LiquidCrystal lcd(A5, A4, A0, A3, A2, A1);
 boolean displayTime = false;
-const int gpsCoordinateInputBufferSize = 10;
+const int gpsCoordinateInputBufferSize = 9;
 char input[gpsCoordinateInputBufferSize]; //buffer for input characters
 int lcdcolumnindexrow1 = 0; // used to indicate location of input key
 
@@ -52,6 +51,7 @@ int lcdcolumnindexrow1 = 0; // used to indicate location of input key
 boolean SETUP = false;
 boolean SETUPLATITUDE = false;
 boolean SETUPLONGITUDE = false; 
+boolean SETUPDONE = false;
 
 
 
@@ -105,13 +105,15 @@ void setup()
 
 void loop()
 {
-  unsigned char key;                                 
+  if(SETUPDONE)  { readline(); }
+  unsigned char key;             
   key=readdata();
   while (readdata()==key && key!= 'E')  {}  //keypad debounce
-  if(key == 'B') {}//displayTime = false; } // Display GPS mode
-  else if(key == 'C') {}//displayTime = true; } // Display Time mode
+  if(key == 'B') {displayTime = false;  lcd.clear(); } // Display GPS mode
+  else if(key == 'C') {displayTime = true; lcd.clear(); } // Display Time mode
   else if(key == 'A')  // Check for setup mode
   {   
+    SETUPDONE = false;
     lcd.clear();
     lcd.print("Enter Latitude");
     lcd.setCursor(0,1);
@@ -136,11 +138,17 @@ void loop()
           lcdcolumnindexrow1 = 0;
          }
         else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {        
-          for(int i =0; i < (gpsCoordinateInputBufferSize-1); i++) {input[i] = input[i+1]; }  //shift all the values left
-          input[(gpsCoordinateInputBufferSize-1)] = key;
-          lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
-          lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
-          ++lcdcolumnindexrow1;
+          if(lcdcolumnindexrow1 < (gpsCoordinateInputBufferSize - 1)) {  // take 8 key strokes only
+            for(int i =0; i < (gpsCoordinateInputBufferSize-1); i++) {input[i] = input[i+1]; }  //shift all the values left
+            input[(gpsCoordinateInputBufferSize-1)] = key;
+            lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
+            lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
+            ++lcdcolumnindexrow1;
+          }
+          else {
+            lcd.setCursor(10, 1);
+            lcd.print("Hit D");
+          }
         }
     }
   }
@@ -152,28 +160,209 @@ void loop()
           SETUP = true; 
           targetLongitude = atol(input);
           Serial.println(targetLongitude);
+          lcd.clear();
+          lcd.println("Setup Done      ");
+          SETUPDONE = true;
           }
-        else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {        
-          for(int i =0; i < (gpsCoordinateInputBufferSize-1); i++) {input[i] = input[i+1]; }  //shift all the values left
-          input[(gpsCoordinateInputBufferSize-1)] = key;
-          lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
-          lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
-          ++lcdcolumnindexrow1;
+        else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {
+          if(lcdcolumnindexrow1 < gpsCoordinateInputBufferSize) {  // take 9 key strokes only
+            for(int i =0; i < (gpsCoordinateInputBufferSize-1); i++) {input[i] = input[i+1]; }  //shift all the values left
+            input[(gpsCoordinateInputBufferSize-1)] = key;
+            lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
+            lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
+            ++lcdcolumnindexrow1;
+           }
+           else {
+             lcd.setCursor(10, 1);
+             lcd.print("Hit D");
+           }
         }
     }
   }
   else if(!SETUP) { }  // infinite loop for the very beginner so it keeps displaying setup prompt
   else {
+      uint32_t tmp;
+      int startPosition;
+      boolean Parse = false;
+      if(StringContains(buffer, "$GPGGA")!= -1 && StringContains(buffer, "*") > StringContains(buffer, "$GPGGA")) {  // this means we've found GPGGA and a * to the right indicating the checksum
+        startPosition = StringContains(buffer, "$GPGGA") +7;
+        Parse = true;
+      }
+        
+      if(Parse) { 
+       // hhmmss time data
+        parseptr = buffer+startPosition;
+        tmp = parsedecimal(parseptr); 
+        hour = tmp / 10000;
+        minute = (tmp / 100) % 100;
+        second = tmp % 100;
+
+        //Time zone adjustment
+        hour += TimeZone;
+        if (hour < 0)    hour += 24;
+        if (hour >= 24)  hour -= 24;
+        if (hour > 12) { 
+            hour -= 12;
+            ampm[0] = 'P'; }
+        else ampm[0] = 'A';
     
-  float latitudeDecimal = latitude;
-  float longitudeDecimal = longitude;
-  latitudeDecimal /= 1000000;
-  longitudeDecimal /=1000000;
-  Serial.println(latitudeDecimal, 6);
-  Serial.println(longitudeDecimal, 6);
-  delay(3000);
+        // grab latitude & long data
+        // latitude
+        parseptr = strchr(parseptr, ',') + 1;
+        latitude = parsedecimal(parseptr);
+        if (latitude != 0) {
+            latitude *= 10000;
+            parseptr = strchr(parseptr, '.')+1;
+            latitude += parsedecimal(parseptr);
+        }
+        parseptr = strchr(parseptr, ',') + 1;
+        // read latitude N/S data
+        if (parseptr[0] != ',') {
+        latdir = parseptr[0];
+        }
+    
+        // longitude
+        parseptr = strchr(parseptr, ',')+1;
+        longitude = parsedecimal(parseptr);
+        if (longitude != 0) {
+          longitude *= 10000;
+          parseptr = strchr(parseptr, '.')+1;
+          longitude += parsedecimal(parseptr);
+        }
+        parseptr = strchr(parseptr, ',')+1;
+        // read longitude E/W data
+        if (parseptr[0] != ',') {
+          longdir = parseptr[0];
+        }
+    
+        for(int i = 0; i<4; i++) {parseptr = strchr(parseptr, ',')+1; }  //Skip over the next three fields
+        altitude = parsedecimal(parseptr);    
+        if (altitude != 0) {
+          altitude *= 100;
+          parseptr = strchr(parseptr, '.')+1;
+          altitude += parsedecimal(parseptr);
+        }
+    
+        if(SerialON) {
+          Serial.print("\nTime: ");
+          Serial.print(hour, DEC); Serial.print(":");
+          if(minute < 10) Serial.print("0");
+          Serial.print(minute, DEC); Serial.print(".");
+          if(second < 10) Serial.print("0");
+          Serial.print(second, DEC); Serial.print(" ");
+          Serial.println(ampm);
+          Serial.print("Lat: "); 
+          if (latdir == 'N')
+             Serial.print("+");
+          else if (latdir == 'S')
+             Serial.print("-");
+          Serial.print(latitude/1000000, DEC); Serial.print("\260"); Serial.print(" ");
+          Serial.print((latitude/10000)%100, DEC); Serial.print(".");
+          Serial.print(latitude%10000, DEC); Serial.println("\'"); 
+          Serial.print("Long: "); 
+          if (longdir == 'E')
+             Serial.print("+");
+          else if (longdir == 'W')
+             Serial.print("-");
+          Serial.print(longitude/1000000, DEC); Serial.print("\260"); Serial.print(" ");
+          Serial.print((longitude/10000)%100, DEC); Serial.print(".");
+          Serial.print(longitude%10000, DEC); Serial.println("\'"); 
+          Serial.print("Altitude: "); 
+          Serial.print(altitude/100, DEC); Serial.print(".");
+          Serial.print(altitude%100, DEC); Serial.println(" m");
+        }
+        if(!displayTime) {
+          lcd.setCursor(0,0);
+          lcd.print("Lat:"); 
+          if (latdir == 'N')
+              lcd.print("+");
+          else if (latdir == 'S')
+              lcd.print("-"); 
+          lcd.print(latitude/1000000);
+          lcd.print(char(0x00+223)); //degree symbol
+          lcd.print((latitude/10000)%100);
+          lcd.print(".");
+          lcd.print(latitude%10000);
+          lcd.print("\'");
+          lcd.setCursor(0,1);
+          lcd.print("Lon:"); 
+          if (longdir == 'E')
+              lcd.print("+");
+          else if (longdir == 'W')
+              lcd.print("-");
+          lcd.print(longitude/1000000);
+          lcd.print(char(0x00+223));
+          lcd.print((longitude/10000)%100);
+          lcd.print(".");
+          lcd.print(longitude%10000);
+        }
+       else if(displayTime) {
+          String totalTime = "";
+          totalTime +=hour;
+          totalTime +=":";
+          if(minute < 10) totalTime += "0";
+          totalTime += minute;
+          totalTime += ".";
+          if(second < 10) totalTime += "0";
+          totalTime += second;
+          totalTime += " ";
+          totalTime += ampm;
+          lcd.setCursor(0,0);
+          lcd.print("TIME:           ");
+          lcd.setCursor(0,1);
+          lcd.print(totalTime);
+        }
+    
+     }
+
   }
 }
+
+
+/////////////////////////////////////////////////////////////////////GPS FUNCTIONS/////////////////////////////////////////////////////////////
+int StringContains(String s, String search) {
+    int max = s.length() - search.length();
+    int lgsearch = search.length();
+
+    for (int i = 0; i <= max; i++) {
+        if (s.substring(i, i + lgsearch) == search) return i;
+    }
+
+ return -1;
+}
+
+uint32_t parsedecimal(char *str) {
+  uint32_t d = 0;
+  
+  while (str[0] != 0) {
+   if ((str[0] > '9') || (str[0] < '0'))
+     return d;
+   d *= 10;
+   d += str[0] - '0';
+   str++;
+  }
+  return d;
+}
+
+void readline(void) {
+  char c;
+  
+  bufferIndex = 0;
+  while (1) {
+      c=mySerial.read();    // read a byte
+      if (c == -1)          // if the byte is -1 don't record and skip to the next byte
+        continue;
+      //Serial.print(c);
+      if (c == '\n')        // if the byte is newline don't record and skip to the next byte
+        continue;
+      if ((bufferIndex == BUFFERSIZE-1) || (c == '\r')) {    // if buffer overflow OR byte is a carriage return, reset the buffer and quit readline
+        buffer[bufferIndex] = 0;
+        return;
+      }
+      buffer[bufferIndex++]= c;  // otherwise store the byte
+  }
+}
+
 
 
 //////////////////////////////////////////////////////////////////KEYPAD FUNCTIONS//////////////////////////////////////////////////////////////
