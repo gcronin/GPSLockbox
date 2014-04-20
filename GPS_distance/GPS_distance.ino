@@ -55,32 +55,6 @@ boolean SETUPDONE = false;
 
 
 
-
-float distance_between(float lat1, float long1, float lat2, float long2, float units_per_meter) {
-	// returns distance in meters between two positions, both specified
-	// as signed decimal-degrees latitude and longitude. Uses great-circle
-	// distance computation for hypothised sphere of radius 6372795 meters.
-	// Because Earth is no exact sphere, rounding errors may be upto 0.5%.
-  float delta = radians(long1-long2);
-  float sdlong = sin(delta);
-  float cdlong = cos(delta);
-  lat1 = radians(lat1);
-  lat2 = radians(lat2);
-  float slat1 = sin(lat1);
-  float clat1 = cos(lat1);
-  float slat2 = sin(lat2);
-  float clat2 = cos(lat2);
-  delta = (clat1 * slat2) - (slat1 * clat2 * cdlong);
-  delta = sq(delta);
-  delta += sq(clat2 * sdlong);
-  delta = sqrt(delta);
-  float denom = (slat1 * slat2) + (clat1 * clat2 * cdlong);
-  delta = atan2(delta, denom);
-  return delta * 6372795 * units_per_meter;
-}
-
-
-
 void setup()  
 {
   //KEYPAD SETUP
@@ -243,6 +217,10 @@ void loop()
           altitude += parsedecimal(parseptr);
         }
     
+        if(checkDistance(50)) {
+          Serial.println("Opening"); }
+        else Serial.println("Too Far");
+                
         if(SerialON) {
           Serial.print("\nTime: ");
           Serial.print(hour, DEC); Serial.print(":");
@@ -316,6 +294,53 @@ void loop()
      }
 
   }
+}
+
+/////////////////////////////////////////////////////////////////////LOCKBOX FUNCTIONS////////////////////////////////////////////////////////
+boolean checkDistance(int precision) {
+  if(distanceToTarget(targetLatitude, targetLongitude, latitude, longitude, 1.0) < precision){ 
+    return true;
+  }
+  else return false;
+}
+
+/////////////////////////////////////////////////////////////////////DISTANCE FUNCTIONS////////////////////////////////////////////////////////
+float distance_between(float lat1, float long1, float lat2, float long2, float units_per_meter) {
+	// returns distance in meters between two positions, both specified
+	// as signed decimal-degrees latitude and longitude. Uses great-circle
+	// distance computation for hypothised sphere of radius 6372795 meters.
+	// Because Earth is no exact sphere, rounding errors may be upto 0.5%.
+  float delta = radians(long1-long2);
+  float sdlong = sin(delta);
+  float cdlong = cos(delta);
+  lat1 = radians(lat1);
+  lat2 = radians(lat2);
+  float slat1 = sin(lat1);
+  float clat1 = cos(lat1);
+  float slat2 = sin(lat2);
+  float clat2 = cos(lat2);
+  delta = (clat1 * slat2) - (slat1 * clat2 * cdlong);
+  delta = sq(delta);
+  delta += sq(clat2 * sdlong);
+  delta = sqrt(delta);
+  float denom = (slat1 * slat2) + (clat1 * clat2 * cdlong);
+  delta = atan2(delta, denom);
+  return delta * 6372795 * units_per_meter;
+}
+
+float convertRawToFloat(uint32_t rawGPS) {
+  float decimalGPS = float(rawGPS);
+  decimalGPS /=1000000;
+  return decimalGPS;
+}
+
+float distanceToTarget(uint32_t lat1, uint32_t long1, uint32_t lat2, uint32_t long2, float units_per_meter)
+{
+  float targetLat = convertRawToFloat(lat1);
+  float targetLong = convertRawToFloat(long1);
+  float currentLat = convertRawToFloat(lat2);
+  float currentLong = convertRawToFloat(long2);
+  return distance_between(targetLat, targetLong, currentLat, currentLong, units_per_meter);
 }
 
 
