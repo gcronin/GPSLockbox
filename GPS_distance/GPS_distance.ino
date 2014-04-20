@@ -6,6 +6,23 @@
 #include <Servo.h>
 #include <Wire.h> 
 
+///////////////////////////////////////////////////////LED SETUP///////////////////////////////////////////////////
+int RGBLed[] = {10, 13, 11};
+byte Colors[][3]={
+      {255, 0, 0},  //RED
+      {0, 255, 0},   // GREEN
+      {0, 0, 255},  //BLUE
+};
+byte RED[] = {Colors[0][0], Colors[0][1], Colors[0][2]};
+byte GREEN[] = {Colors[1][0], Colors[1][1], Colors[1][2]};
+byte BLUE[] = {Colors[2][0], Colors[2][1], Colors[2][2]};
+int HotColdScaleFactor = 1000;
+long elapsedTime = 0;
+int increment2 = 0;
+int increment1 = 0;
+boolean NewColor = true;
+int changeRed, changeBlue, changeGreen, steps;
+
 /////////////////////////////////////////////////////////COMPUTER SERIAL SETUP///////////////////////////////////////
 #define SerialON 1
 
@@ -22,6 +39,9 @@ const int TimeZone = -7;
 char ampm[3];
 uint32_t latitude, longitude, altitude, targetLatitude, targetLongitude;
 char latdir, longdir;
+float targetDistance;   //how far away the target is
+int precision = 50;   //we need to be within this value of the target in order to open the lockbox
+
  
 /////////////////////////////////////////////////////KEYPAD SETUP/////////////////////////////////////////////////////// 
 #define PCA9555 0x20 // address for PCA9555
@@ -74,6 +94,10 @@ void setup()
   //GPS SETUP
   mySerial.begin(BAUDRATE);
   ampm[1] = 'M';
+  
+  //LED SETUP
+  for(int i=0; i<3; i++) pinMode(RGBLed[i], OUTPUT);
+  setColor(RGBLed, GREEN);
 
 }
 
@@ -95,6 +119,7 @@ void loop()
     SETUPLATITUDE = true;
     for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
     lcdcolumnindexrow1 = 0;
+    setColor(RGBLed, RED);
   }
   else if(SETUPLATITUDE)  // user input of latitude
   {
@@ -110,6 +135,7 @@ void loop()
           lcd.print("dddmmmmmm");
           for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
           lcdcolumnindexrow1 = 0;
+          setColor(RGBLed, RED);
          }
         else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {        
           if(lcdcolumnindexrow1 < (gpsCoordinateInputBufferSize - 1)) {  // take 8 key strokes only
@@ -118,6 +144,9 @@ void loop()
             lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
+            byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/(gpsCoordinateInputBufferSize - 1)), 255*lcdcolumnindexrow1/(gpsCoordinateInputBufferSize - 1), 0};
+            Serial.println(RedToGreen[0]); Serial.println(RedToGreen[1]); Serial.println(RedToGreen[2]);
+            setColor(RGBLed, RedToGreen);
           }
           else {
             lcd.setCursor(10, 1);
@@ -137,6 +166,7 @@ void loop()
           lcd.clear();
           lcd.println("Setup Done      ");
           SETUPDONE = true;
+          setColor(RGBLed, BLUE);
           }
         else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {
           if(lcdcolumnindexrow1 < gpsCoordinateInputBufferSize) {  // take 9 key strokes only
@@ -145,6 +175,8 @@ void loop()
             lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
+            byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize), 255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize, 0};
+            setColor(RGBLed, RedToGreen);
            }
            else {
              lcd.setCursor(10, 1);
@@ -216,10 +248,17 @@ void loop()
           parseptr = strchr(parseptr, '.')+1;
           altitude += parsedecimal(parseptr);
         }
-    
-        if(checkDistance(50)) {
-          Serial.println("Opening"); }
-        else Serial.println("Too Far");
+
+        if(checkDistance(precision)) {
+          Serial.println("Opening");
+          fadeColor(2); }
+        else { 
+          byte HotColdRed = (targetDistance-precision) > HotColdScaleFactor ? 0 : (255 - 255*(targetDistance-precision)/HotColdScaleFactor);
+          byte HotColdBlue = (targetDistance-precision) > HotColdScaleFactor ? 255 : (255*(targetDistance-precision)/HotColdScaleFactor);
+          byte HotColdColor[] = {HotColdRed, 0, HotColdBlue};
+          setColor(RGBLed, HotColdColor);  
+        }
+
                 
         if(SerialON) {
           Serial.print("\nTime: ");
@@ -296,9 +335,53 @@ void loop()
   }
 }
 
+////////////////////////////////////////////////////////////////////LED FUNCTIONS////////////////////////////////////////////////////////////
+void setColor(int* led, byte* color){
+  for(int i = 0; i < 3; i++){
+    //iterate through each of the three pins (red green blue)
+    analogWrite(led[i], 255 - color[i]);
+  //set the analog output value of each pin to the input value (ie led[0] (red pin) to 255- color[0] (red input color)
+  //we use 255 - the value because our RGB LED is common anode, this means a color is full on when we output analogWrite(pin, 0)
+  //and off when we output analogWrite(pin, 255).
+  }
+}
+
+/* A version of setColor that takes a predefined color
+(neccesary to allow const int pre-defined colors */
+void setColor(int* led, const byte* color){
+  byte tempByte[] = {color[0], color[1], color[2]};
+  setColor(led, tempByte);
+}
+
+void fadeColor(int delayTime) {     
+  if(NewColor) {
+    changeRed = Colors[(increment1+1)%3][0] - Colors[increment1][0];  //the difference in the two colors for the red channel
+    changeGreen = Colors[(increment1+1)%3][1] - Colors[increment1][1];  //the difference in the two colors for the green channel
+    changeBlue =  Colors[(increment1+1)%3][2] - Colors[increment1][2];  //the difference in the two colors for the blue channel
+    steps = max(abs(changeRed),max(abs(changeGreen), abs(changeBlue)))/40;
+    NewColor = false;
+  }
+
+  if((millis() - elapsedTime) > delayTime) {
+      byte newRed = Colors[increment1][0] + (increment2 * changeRed / steps);  //the newRed intensity dependant on the start intensity and the change determined above
+      byte newGreen =  Colors[increment1][1] + (increment2 * changeGreen / steps);     //the newGreen intensity
+      byte newBlue = Colors[increment1][2] + (increment2 * changeBlue / steps);     //the newBlue intensity
+      byte newColor[] = {newRed, newGreen, newBlue};    //Define an RGB color array for the new color
+      setColor(RGBLed, newColor); //Set the LED to the calculated value
+      increment2 = (increment2+1)%255;
+      elapsedTime = millis();
+      if(increment2 == (steps-1)) {
+          increment2 = 0;
+          increment1 = (increment1 + 1)%3;
+          NewColor = true;
+      }
+   }
+}
+
 /////////////////////////////////////////////////////////////////////LOCKBOX FUNCTIONS////////////////////////////////////////////////////////
 boolean checkDistance(int precision) {
-  if(distanceToTarget(targetLatitude, targetLongitude, latitude, longitude, 1.0) < precision){ 
+  targetDistance = distanceToTarget(targetLatitude, targetLongitude, latitude, longitude, 1.0);
+  if(targetDistance < precision){ 
     return true;
   }
   else return false;
