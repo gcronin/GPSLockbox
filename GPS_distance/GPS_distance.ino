@@ -12,11 +12,13 @@ byte Colors[][3]={
       {255, 0, 0},  //RED
       {0, 255, 0},   // GREEN
       {0, 0, 255},  //BLUE
+      {220, 50, 0},  //YELLOW
 };
 byte RED[] = {Colors[0][0], Colors[0][1], Colors[0][2]};
 byte GREEN[] = {Colors[1][0], Colors[1][1], Colors[1][2]};
 byte BLUE[] = {Colors[2][0], Colors[2][1], Colors[2][2]};
-int HotColdScaleFactor = 1000;
+byte YELLOW[] = {Colors[3][0], Colors[3][1], Colors[3][2]};
+long HotColdScaleFactor = 1000;
 long elapsedTime = 0;
 int increment2 = 0;
 int increment1 = 0;
@@ -57,7 +59,10 @@ int precision = 50;   //we need to be within this value of the target in order t
 #define readIIC() Wire.receive()
 #endif
 
-
+/////////////////////////////////////////////////SERVO SETUP//////////////////////////////////////////////////////////////
+int servoPin = 5;
+int servoEnable = 7;
+Servo myservo; 
 
 /////////////////////////////////////////////////LCD SETUP//////////////////////////////////////////////////////////////
 LiquidCrystal lcd(A5, A4, A0, A3, A2, A1);
@@ -72,11 +77,18 @@ boolean SETUP = false;
 boolean SETUPLATITUDE = false;
 boolean SETUPLONGITUDE = false; 
 boolean SETUPDONE = false;
+boolean LOCKED = false;
+boolean STARTINGDISTANCETOTARGET = false;
 
 
 
 void setup()  
 {
+  //SERVO SETUP
+  myservo.attach(servoPin);  
+  pinMode(servoEnable, OUTPUT);
+  digitalWrite(servoEnable, LOW);  
+  
   //KEYPAD SETUP
   Wire.begin(PCA9555); // join i2c bus (address optional for master) tried to get working
   write_io (CONFIG_P0, B00001111); //define port 0.7-0.4 as output, 0.3-0.0 as input
@@ -97,13 +109,13 @@ void setup()
   
   //LED SETUP
   for(int i=0; i<3; i++) pinMode(RGBLed[i], OUTPUT);
-  setColor(RGBLed, GREEN);
+  setColor(RGBLed, RED);
 
 }
 
 void loop()
 {
-  if(SETUPDONE)  { readline(); }
+  if(SETUPDONE)  {  readline(); }
   unsigned char key;             
   key=readdata();
   while (readdata()==key && key!= 'E')  {}  //keypad debounce
@@ -111,6 +123,14 @@ void loop()
   else if(key == 'C') {displayTime = true; lcd.clear(); } // Display Time mode
   else if(key == 'A')  // Check for setup mode
   {   
+    if(!LOCKED) {
+       digitalWrite(servoEnable, HIGH);
+       delay(100);
+       myservo.writeMicroseconds(1400);
+       delay(2000);
+       digitalWrite(servoEnable, LOW);
+       LOCKED = true;
+    }
     SETUPDONE = false;
     lcd.clear();
     lcd.print("Enter Latitude");
@@ -119,7 +139,7 @@ void loop()
     SETUPLATITUDE = true;
     for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
     lcdcolumnindexrow1 = 0;
-    setColor(RGBLed, RED);
+    setColor(RGBLed, YELLOW);
   }
   else if(SETUPLATITUDE)  // user input of latitude
   {
@@ -135,7 +155,7 @@ void loop()
           lcd.print("dddmmmmmm");
           for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
           lcdcolumnindexrow1 = 0;
-          setColor(RGBLed, RED);
+          setColor(RGBLed, YELLOW);
          }
         else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {        
           if(lcdcolumnindexrow1 < (gpsCoordinateInputBufferSize - 1)) {  // take 8 key strokes only
@@ -144,9 +164,8 @@ void loop()
             lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
-            byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/(gpsCoordinateInputBufferSize - 1)), 255*lcdcolumnindexrow1/(gpsCoordinateInputBufferSize - 1), 0};
-            Serial.println(RedToGreen[0]); Serial.println(RedToGreen[1]); Serial.println(RedToGreen[2]);
-            setColor(RGBLed, RedToGreen);
+            //byte RedToGreen[] = {(255-255*pow(lcdcolumnindexrow1,2)/pow((gpsCoordinateInputBufferSize - 1), 2)), 255*pow(lcdcolumnindexrow1,2)/pow((gpsCoordinateInputBufferSize - 1), 2), 0};
+            setColor(RGBLed, YELLOW);
           }
           else {
             lcd.setCursor(10, 1);
@@ -175,8 +194,8 @@ void loop()
             lcd.setCursor(lcdcolumnindexrow1,1);  //print on left of LCD moving right
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
-            byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize), 255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize, 0};
-            setColor(RGBLed, RedToGreen);
+            //byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize), 255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize, 0};
+            setColor(RGBLed, YELLOW);
            }
            else {
              lcd.setCursor(10, 1);
@@ -248,10 +267,30 @@ void loop()
           parseptr = strchr(parseptr, '.')+1;
           altitude += parsedecimal(parseptr);
         }
-
+        
+        if(!STARTINGDISTANCETOTARGET && (latitude+longitude+altitude)!=0)
+        {
+          //find the distance from starting to ending locations
+          HotColdScaleFactor = long(distanceToTarget(targetLatitude, targetLongitude, latitude, longitude, 1.0));     
+          STARTINGDISTANCETOTARGET = true; //only do this once
+        }
+        if(SerialON) {
+           Serial.print("scale factor: ");
+           Serial.println(HotColdScaleFactor); }
+        
         if(checkDistance(precision)) {
-          Serial.println("Opening");
-          fadeColor(2); }
+          if(SerialON) Serial.println("Opening");
+          lcd.clear();
+          lcd.print("Arrived!");
+          if(LOCKED) {
+              digitalWrite(servoEnable, HIGH);
+              delay(100);
+              myservo.writeMicroseconds(2100);
+              delay(2000);
+              digitalWrite(servoEnable, LOW);
+              LOCKED = false;
+          }
+          fadeColor(0); }
         else { 
           byte HotColdRed = (targetDistance-precision) > HotColdScaleFactor ? 0 : (255 - 255*(targetDistance-precision)/HotColdScaleFactor);
           byte HotColdBlue = (targetDistance-precision) > HotColdScaleFactor ? 255 : (255*(targetDistance-precision)/HotColdScaleFactor);
@@ -347,11 +386,11 @@ void setColor(int* led, byte* color){
 }
 
 /* A version of setColor that takes a predefined color
-(neccesary to allow const int pre-defined colors */
+(neccesary to allow const int pre-defined colors 
 void setColor(int* led, const byte* color){
   byte tempByte[] = {color[0], color[1], color[2]};
   setColor(led, tempByte);
-}
+}*/
 
 void fadeColor(int delayTime) {     
   if(NewColor) {
