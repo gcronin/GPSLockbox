@@ -66,7 +66,7 @@ Servo myservo;
 
 /////////////////////////////////////////////////LCD SETUP//////////////////////////////////////////////////////////////
 LiquidCrystal lcd(A5, A4, A0, A3, A2, A1);
-boolean displayTime = false;
+byte displayType = 0;   //0 = coordinates, 1 = time, 2 = distance to target
 const int gpsCoordinateInputBufferSize = 9;
 char input[gpsCoordinateInputBufferSize]; //buffer for input characters
 int lcdcolumnindexrow1 = 0; // used to indicate location of input key
@@ -119,19 +119,17 @@ void loop()
   unsigned char key;             
   key=readdata();
   while (readdata()==key && key!= 'E')  {}  //keypad debounce
-  if(key == 'B') {displayTime = false;  lcd.clear(); } // Display GPS mode
-  else if(key == 'C') {displayTime = true; lcd.clear(); } // Display Time mode
+  if(key == 'B') {displayType = (displayType+1)%3;  lcd.clear(); } // Setup LCD Display Mode
+  else if(key == 'C') {   // Toggle Locked Mode
+    if(LOCKED) unlockBox();
+    else lockBox();
+  } 
   else if(key == 'A')  // Check for setup mode
   {   
-    if(!LOCKED) {
-       digitalWrite(servoEnable, HIGH);
-       delay(100);
-       myservo.writeMicroseconds(1400);
-       delay(2000);
-       digitalWrite(servoEnable, LOW);
-       LOCKED = true;
-    }
+    if(!LOCKED) lockBox();
     SETUPDONE = false;
+    setColor(RGBLed, GREEN);
+    delay(2000);
     lcd.clear();
     lcd.print("Enter Latitude");
     lcd.setCursor(0,1);
@@ -139,12 +137,16 @@ void loop()
     SETUPLATITUDE = true;
     for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
     lcdcolumnindexrow1 = 0;
-    setColor(RGBLed, YELLOW);
+    setColor(RGBLed, RED);
   }
   else if(SETUPLATITUDE)  // user input of latitude
   {
     if(key != 'E') {// received a keystroke
         if(key == 'D') {
+          lcd.clear();
+          lcd.print("Got Target Lat");
+          setColor(RGBLed, GREEN);
+          delay(1500);
           SETUPLATITUDE = false;
           SETUPLONGITUDE = true; 
           targetLatitude = atol(input);
@@ -155,7 +157,7 @@ void loop()
           lcd.print("dddmmmmmm");
           for(int i = 0; i < gpsCoordinateInputBufferSize; i++) { input[i] = '0'; }  // initialize input as zero
           lcdcolumnindexrow1 = 0;
-          setColor(RGBLed, YELLOW);
+          setColor(RGBLed, RED);
          }
         else if(key != 'B' && key!= 'C' && key != '#' && key != '*' && key != 'A') {        
           if(lcdcolumnindexrow1 < (gpsCoordinateInputBufferSize - 1)) {  // take 8 key strokes only
@@ -165,7 +167,7 @@ void loop()
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
             //byte RedToGreen[] = {(255-255*pow(lcdcolumnindexrow1,2)/pow((gpsCoordinateInputBufferSize - 1), 2)), 255*pow(lcdcolumnindexrow1,2)/pow((gpsCoordinateInputBufferSize - 1), 2), 0};
-            setColor(RGBLed, YELLOW);
+            //setColor(RGBLed, YELLOW);
           }
           else {
             lcd.setCursor(10, 1);
@@ -178,12 +180,17 @@ void loop()
   {
     if(key != 'E') {// received a keystroke
         if(key == 'D') {
+          lcd.clear();
+          lcd.print("Got Target Long");
+          setColor(RGBLed, GREEN);
+          delay(1500);
           SETUPLONGITUDE = false;
           SETUP = true; 
           targetLongitude = atol(input);
           Serial.println(targetLongitude);
           lcd.clear();
           lcd.println("Setup Done      ");
+          delay(2000);
           SETUPDONE = true;
           setColor(RGBLed, BLUE);
           }
@@ -195,7 +202,7 @@ void loop()
             lcd.print(input[(gpsCoordinateInputBufferSize-1)]);
             ++lcdcolumnindexrow1;
             //byte RedToGreen[] = {(255-255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize), 255*lcdcolumnindexrow1/gpsCoordinateInputBufferSize, 0};
-            setColor(RGBLed, YELLOW);
+            //setColor(RGBLed, YELLOW);
            }
            else {
              lcd.setCursor(10, 1);
@@ -204,7 +211,7 @@ void loop()
         }
     }
   }
-  else if(!SETUP) { }  // infinite loop for the very beginner so it keeps displaying setup prompt
+  else if(!SETUP) { fadeColor(50);  }  // infinite loop for the very beginner so it keeps displaying setup prompt
   else {
       uint32_t tmp;
       int startPosition;
@@ -279,17 +286,11 @@ void loop()
            Serial.println(HotColdScaleFactor); }
         
         if(checkDistance(precision)) {
+          SETUPDONE = false;
           if(SerialON) Serial.println("Opening");
           lcd.clear();
           lcd.print("Arrived!");
-          if(LOCKED) {
-              digitalWrite(servoEnable, HIGH);
-              delay(100);
-              myservo.writeMicroseconds(2100);
-              delay(2000);
-              digitalWrite(servoEnable, LOW);
-              LOCKED = false;
-          }
+          if(LOCKED) unlockBox();
           fadeColor(0); }
         else { 
           byte HotColdRed = (targetDistance-precision) > HotColdScaleFactor ? 0 : (255 - 255*(targetDistance-precision)/HotColdScaleFactor);
@@ -327,7 +328,7 @@ void loop()
           Serial.print(altitude/100, DEC); Serial.print(".");
           Serial.print(altitude%100, DEC); Serial.println(" m");
         }
-        if(!displayTime) {
+        if(displayType==0) {
           lcd.setCursor(0,0);
           lcd.print("Lat:"); 
           if (latdir == 'N')
@@ -352,7 +353,7 @@ void loop()
           lcd.print(".");
           lcd.print(longitude%10000);
         }
-       else if(displayTime) {
+       else if(displayType==1) {
           String totalTime = "";
           totalTime +=hour;
           totalTime +=":";
@@ -368,6 +369,15 @@ void loop()
           lcd.setCursor(0,1);
           lcd.print(totalTime);
         }
+       else {
+          lcd.setCursor(0,0);
+          lcd.print("Distance To Go:");
+          lcd.setCursor(0,1);
+          lcd.print(targetDistance);
+          lcd.setCursor(15,1);
+          lcd.print("m");
+       }
+       
     
      }
 
@@ -385,13 +395,6 @@ void setColor(int* led, byte* color){
   }
 }
 
-/* A version of setColor that takes a predefined color
-(neccesary to allow const int pre-defined colors 
-void setColor(int* led, const byte* color){
-  byte tempByte[] = {color[0], color[1], color[2]};
-  setColor(led, tempByte);
-}*/
-
 void fadeColor(int delayTime) {     
   if(NewColor) {
     changeRed = Colors[(increment1+1)%3][0] - Colors[increment1][0];  //the difference in the two colors for the red channel
@@ -407,6 +410,11 @@ void fadeColor(int delayTime) {
       byte newBlue = Colors[increment1][2] + (increment2 * changeBlue / steps);     //the newBlue intensity
       byte newColor[] = {newRed, newGreen, newBlue};    //Define an RGB color array for the new color
       setColor(RGBLed, newColor); //Set the LED to the calculated value
+      Serial.print(newRed);
+      Serial.print("  ");
+      Serial.print(newGreen);
+      Serial.print("  ");
+      Serial.println(newBlue);
       increment2 = (increment2+1)%255;
       elapsedTime = millis();
       if(increment2 == (steps-1)) {
@@ -425,6 +433,25 @@ boolean checkDistance(int precision) {
   }
   else return false;
 }
+
+void lockBox() {
+    digitalWrite(servoEnable, HIGH);
+    delay(100);
+    myservo.writeMicroseconds(1400);
+    delay(2000);
+    digitalWrite(servoEnable, LOW);
+    LOCKED = true;
+}
+
+void unlockBox() {
+    digitalWrite(servoEnable, HIGH);
+    delay(100);
+    myservo.writeMicroseconds(2100);
+    delay(2000);
+    digitalWrite(servoEnable, LOW);
+    LOCKED = false;
+}
+
 
 /////////////////////////////////////////////////////////////////////DISTANCE FUNCTIONS////////////////////////////////////////////////////////
 float distance_between(float lat1, float long1, float lat2, float long2, float units_per_meter) {

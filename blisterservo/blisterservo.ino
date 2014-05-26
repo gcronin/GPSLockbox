@@ -1,8 +1,8 @@
 #include <Servo.h>
 
 Servo myservo;
-int outPin = 15;  //Out Magnetic Sensor attached here
-int inPin = 14;   //In Magnetic Sensor attached here
+int outPin = 18;  //Out Magnetic Sensor attached here
+int inPin = 19;   //In Magnetic Sensor attached here
 int outPulse = 1100;
 int inPulse = 1900;
 int stopPulse = 1465;
@@ -15,7 +15,7 @@ boolean DirectionIn = false;
 
 void setup() {
   Serial.begin(38400);
-  myservo.attach(16);
+  myservo.attach(17);
   pinMode(outPin, INPUT);  //Out Limit Sensor
   pinMode(inPin, INPUT);  //In Limit Sensor
 }
